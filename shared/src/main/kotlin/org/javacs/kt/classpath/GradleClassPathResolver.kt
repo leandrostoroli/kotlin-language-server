@@ -61,7 +61,7 @@ private fun gradleScriptToTempFile(scriptName: String, deleteOnExit: Boolean = f
 private fun getGradleCommand(workspace: Path): Path {
     val wrapperName = if (isOSWindows()) "gradlew.bat" else "gradlew"
     val wrapper = workspace.resolve(wrapperName).toAbsolutePath()
-    if (Files.exists(wrapper)) {
+    if (Files.isExecutable(wrapper)) {
         return wrapper
     } else {
         return workspace.parent?.let(::getGradleCommand)
@@ -89,9 +89,14 @@ private fun readDependenciesViaGradleCLI(projectDirectory: Path, gradleScripts: 
 
 private fun findGradleCLIDependencies(command: String, projectDirectory: Path): Set<Path>? {
     val (result, errors) = execAndReadStdoutAndStderr(command, projectDirectory)
-    LOG.debug(result)
     if ("FAILURE: Build failed" in errors) {
-        LOG.warn("Gradle task failed: {}", errors.lines().joinToString("\n"))
+        LOG.warn("Gradle task failed: {}", errors)
+    } else {
+        for (error in errors.lines()) {
+            if ("ERROR: " in error) {
+                LOG.warn("Gradle error: {}", error)
+            }
+        }
     }
     return parseGradleCLIDependencies(result)
 }

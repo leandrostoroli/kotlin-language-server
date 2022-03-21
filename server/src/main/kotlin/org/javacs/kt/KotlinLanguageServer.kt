@@ -6,7 +6,7 @@ import org.eclipse.lsp4j.jsonrpc.services.JsonDelegate
 import org.eclipse.lsp4j.services.LanguageClient
 import org.eclipse.lsp4j.services.LanguageClientAware
 import org.eclipse.lsp4j.services.LanguageServer
-import org.javacs.kt.commands.ALL_COMMANDS
+import org.javacs.kt.command.ALL_COMMANDS
 import org.javacs.kt.externalsources.JarClassContentProvider
 import org.javacs.kt.externalsources.ClassPathSourceJarProvider
 import org.javacs.kt.util.AsyncExecutor
@@ -96,6 +96,10 @@ class KotlinLanguageServer : LanguageServer, LanguageClientAware, Closeable {
             progressFactory = LanguageClientProgress.Factory(client)
         }
 
+        if (clientCapabilities?.textDocument?.rename?.prepareSupport ?: false) {
+            serverCapabilities.renameProvider = Either.forRight(RenameOptions(false))
+        }
+
         @Suppress("DEPRECATION")
         val folders = params.workspaceFolders?.takeIf { it.isNotEmpty() }
             ?: params.rootUri?.let(::WorkspaceFolder)?.let(::listOf)
@@ -120,6 +124,8 @@ class KotlinLanguageServer : LanguageServer, LanguageClientAware, Closeable {
                 sourcePath.refresh()
             }
         }
+
+        textDocuments.lintAll()
 
         val serverInfo = ServerInfo("Kotlin Language Server", VERSION)
 

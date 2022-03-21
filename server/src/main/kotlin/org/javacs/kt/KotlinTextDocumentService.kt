@@ -4,6 +4,7 @@ import org.eclipse.lsp4j.*
 import org.eclipse.lsp4j.jsonrpc.messages.Either
 import org.eclipse.lsp4j.services.LanguageClient
 import org.eclipse.lsp4j.services.TextDocumentService
+import org.javacs.kt.codeaction.codeActions
 import org.javacs.kt.completion.*
 import org.javacs.kt.definition.goToDefinition
 import org.javacs.kt.diagnostic.convertDiagnostic
@@ -25,7 +26,7 @@ import org.javacs.kt.util.TemporaryDirectory
 import org.javacs.kt.util.parseURI
 import org.javacs.kt.util.describeURI
 import org.javacs.kt.util.describeURIs
-import org.javacs.kt.commands.JAVA_TO_KOTLIN_COMMAND
+import org.javacs.kt.command.JAVA_TO_KOTLIN_COMMAND
 import org.javacs.kt.rename.renameSymbol
 import org.jetbrains.kotlin.resolve.diagnostics.Diagnostics
 import java.net.URI
@@ -74,9 +75,13 @@ class KotlinTextDocumentService(
     }
 
     private fun recover(position: TextDocumentPositionParams, recompile: Recompile): Pair<CompiledFile, Int> {
-        val uri = parseURI(position.textDocument.uri)
+        return recover(position.textDocument.uri, position.position, recompile)
+    }
+
+    private fun recover(uriString: String, position: Position, recompile: Recompile): Pair<CompiledFile, Int> {
+        val uri = parseURI(uriString)
         val content = sp.content(uri)
-        val offset = offset(content, position.position.line, position.position.character)
+        val offset = offset(content, position.line, position.character)
         val shouldRecompile = when (recompile) {
             Recompile.ALWAYS -> true
             Recompile.AFTER_DOT -> offset > 0 && content[offset - 1] == '.'
@@ -87,21 +92,8 @@ class KotlinTextDocumentService(
     }
 
     override fun codeAction(params: CodeActionParams): CompletableFuture<List<Either<Command, CodeAction>>> = async.compute {
-        val start = params.range.start
-        val end = params.range.end
-        val hasSelection = (end.character - start.character) != 0 || (end.line - start.line) != 0
-        if (hasSelection) {
-            listOf(
-                Either.forLeft<Command, CodeAction>(
-                    Command("Convert Java to Kotlin", JAVA_TO_KOTLIN_COMMAND, listOf(
-                        params.textDocument.uri,
-                        params.range
-                    ))
-                )
-            )
-        } else {
-            emptyList()
-        }
+        val (file, _) = recover(params.textDocument.uri, params.range.start, Recompile.NEVER)
+        codeActions(file, params.range, params.context)
     }
 
     override fun hover(position: HoverParams): CompletableFuture<Hover?> = async.compute {
@@ -266,6 +258,13 @@ class KotlinTextDocumentService(
 
     public fun updateDebouncer() {
         debounceLint = Debouncer(Duration.ofMillis(config.linting.debounceTime))
+    }
+
+    fun lintAll() {
+        debounceLint.submitImmediately {
+            sp.compileAllFiles()
+            sp.refreshDependencyIndexes()
+        }
     }
 
     private fun clearLint(): List<URI> {
